@@ -126,5 +126,61 @@ def process_text():
         return jsonify({'error': 'An unexpected error occurred'}), 500
 
 
+@app.route('/support', methods=['POST'])
+def customer_support():
+    """
+    Processes customer support text using the Gemini API with specific system instructions.
+    """
+    data = request.get_json()
+    text = data.get('text')
+
+    if not text:
+        return jsonify({'error': 'No text provided'}), 400  # Bad Request
+
+    try:
+        if not GEMINI_API_KEY:
+            return jsonify({'error': 'API key not configured'}), 500
+
+        response = requests.post(
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
+            headers={
+                'Content-Type': 'application/json',
+                'x-goog-api-key': GEMINI_API_KEY
+            },
+            json={
+                'contents': [{
+                    'parts': [{
+                        'text': text
+                    }]
+                }],
+                'system': 'Assume you are customer support agent of apollo247(https://www.apollo247.com/), conversing with customers who reached out to their support.'
+            })
+
+        print(f"Response status code: {response.status_code}")
+        print(f"Response headers: {response.headers}")
+        print(f"Response body: {response.text}")
+
+
+        response.raise_for_status()
+        response_data = response.json()
+
+        if 'candidates' in response_data and response_data['candidates']: #check if candidates is not empty
+           text_response = response_data['candidates'][0]['content']['parts'][0]['text']
+           return jsonify({'result': text_response})
+        else:
+            print(f"Unexpected response structure: {response_data}")
+            return jsonify({'error': 'Invalid response format from API'}), 500
+
+
+    except requests.exceptions.RequestException as e:
+        print(f'Error processing text: {str(e)}')
+        if hasattr(e.response, 'text'):
+            print(f'Error response body: {e.response.text}')
+        return jsonify({'error': 'Failed to process text'}), 500
+    except Exception as e: # catch any other exception
+        print(f'An unexpected error occurred: {e}')
+        return jsonify({'error': 'An unexpected error occurred'}), 500
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
