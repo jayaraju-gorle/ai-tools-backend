@@ -199,7 +199,7 @@ def customer_support():
     # --- API Call and Response Handling ---
     if order_id:
         order_summary = get_order_summary(order_id, APOLLO247_AUTH_TOKEN)
-        print(f"DEBUG: order_summary = {order_summary}")  # VERY IMPORTANT DEBUG PRINT
+        print(f"DEBUG: order_summary = {order_summary}")  # Keep for now
 
         if order_summary:  # API call was successful
             if order_summary.get("code") == 200 and order_summary.get("message") == "Data found.":
@@ -209,7 +209,7 @@ def customer_support():
 
                 # Case 2: User asks for "cancellation reason" -> Return just that
                 cancellation_reason = order_summary.get('cancellationReason', 'N/A')
-                print(f"DEBUG: cancellation_reason (extracted) = {cancellation_reason}") # DEBUG PRINT
+                print(f"DEBUG: cancellation_reason (extracted) = {cancellation_reason}") # Keep for now
 
                 if asks_for_cancellation_reason:
                     return jsonify({'cancellationReason': cancellation_reason, 'orderId': order_id})
@@ -218,7 +218,7 @@ def customer_support():
                 # Prepare apollo_response (formatted order data)
                 items = order_summary.get('orderItemDetails', [])
                 apollo_response = f"**Order ID:** {order_id}\n\n"
-                if cancellation_reason != 'N/A':
+                if cancellation_reason != 'N/A' and cancellation_reason != None: #Check for None and N/A
                     apollo_response += f"**Cancellation Reason:** {cancellation_reason}\n\n"
                 apollo_response += "**Items:**\n"
                 if items:
@@ -231,14 +231,16 @@ def customer_support():
                 else:
                     apollo_response += "* No items found for this order.\n"
 
-                print(f"DEBUG: apollo_response = {apollo_response}")  # VERY IMPORTANT DEBUG PRINT
+                print(f"DEBUG: apollo_response = {apollo_response}")  # Keep for now
 
-                # --- Gemini Prompt (for general order queries) ---
+                # --- Gemini Prompt (***REVISED***) ---
                 system_instruction = (
                     "You are a customer support agent for Apollo 24|7. "
                     "Provide ACCURATE and CONCISE information directly relevant to the user's query."
                     "\n\n**Instructions:**"
                     "\n*   **Do not introduce yourself.**"
+                    "\n*   **Answer based solely on the provided Order Information.**" # Key instruction
+                    "\n*   **If the 'Cancellation Reason' is 'None' or 'N/A', state explicitly that the order is NOT cancelled.** Do NOT invent a reason." # Most important instruction
                     "\n*   If order details are available, use them to answer the user's question."
                     "\n*   Be extremely concise. Avoid unnecessary phrases."
                     "\n*  Do not include any additional information, other than requested."
@@ -247,10 +249,13 @@ def customer_support():
                 gemini_prompt = (
                     f"{system_instruction}\n\n"
                     f"Customer query: {user_query}\n\n"
-                    f"Order Information:\n{apollo_response}"  # Pass the formatted data
+                    f"Order Information:\n{apollo_response}"
                 )
+                if cancellation_reason == None or cancellation_reason == 'N/A':
+                    gemini_prompt += "\n\nThe order is not cancelled."
 
-                print(f"DEBUG: gemini_prompt = {gemini_prompt}")  # VERY IMPORTANT - Check the full prompt
+                print(f"DEBUG: gemini_prompt = {gemini_prompt}")  # Keep for now
+
 
                 try:
                     response = requests.post(
