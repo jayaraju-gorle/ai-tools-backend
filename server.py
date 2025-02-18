@@ -4,6 +4,7 @@ import requests
 import os
 import re  # Import the regular expression module
 from dotenv import load_dotenv
+import json  # Import the json module
 
 load_dotenv()
 
@@ -11,12 +12,12 @@ app = Flask(__name__)
 CORS(app)
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-APOLLO247_AUTH_TOKEN = os.getenv('APOLLO247_AUTH_TOKEN') # Fetch Apollo token from environment
+APOLLO247_AUTH_TOKEN = os.getenv('APOLLO247_AUTH_TOKEN')  # Fetch Apollo token
 
 
 def get_order_summary(order_id, auth_token):
     """
-    Fetches order summary from Apollo 24|7 API.  (This function remains the same)
+    Fetches order summary from Apollo 24|7 API. (Improved error handling)
     """
     url = f"https://apigateway.apollo247.in/corporate-portal/orders/pharmacy/orderSummary?orderId={order_id}"
     headers = {
@@ -26,14 +27,18 @@ def get_order_summary(order_id, auth_token):
 
     try:
         response = requests.get(url, headers=headers)
-        response.raise_for_status()
+        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
         return response.json()
     except requests.exceptions.RequestException as e:
         print(f"Error fetching order summary: {e}")
-        return None  # Return None on error
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"  Status Code: {e.response.status_code}")
+            print(f"  Response Text: {e.response.text}")  # Print raw response
+        return None
     except json.JSONDecodeError as e:
         print(f"Error decoding JSON response: {e}")
         return None
+
 
 @app.route('/', methods=['GET'])
 def home():
@@ -41,12 +46,12 @@ def home():
 
 @app.route('/calculate', methods=['POST'])
 def calculate():
-     #Existing code
-     #... (your existing /calculate route code remains unchanged) ...
-     data = request.get_json()
-     expression = data.get('expression')
+    #Existing /calculate route
+    #... (your existing /calculate route code remains unchanged)
+    data = request.get_json()
+    expression = data.get('expression')
 
-     try:
+    try:
         print(f"Sending request with expression: {expression}")
         if not GEMINI_API_KEY:
             return jsonify({'error': 'API key not configured'}), 500
@@ -79,20 +84,20 @@ def calculate():
         else:
             print(f"Unexpected response structure: {response_data}")
             return jsonify({'error': 'Invalid response format from API'}), 500
-     except requests.exceptions.RequestException as e:
+    except requests.exceptions.RequestException as e:
         print(f'Error calculating expression: {str(e)}')
         if hasattr(e.response, 'text'):  # Check if response attribute exists
             print(f'Error response body: {e.response.text}')
         return jsonify({'error': 'Failed to calculate expression'}), 500
-     except Exception as e:  # Catch other potential errors
+    except Exception as e:  # Catch other potential errors
         print(f'An unexpected error occurred: {e}')
         return jsonify({'error': 'An unexpected error occurred'}), 500
 
 
 @app.route('/text', methods=['POST'])
 def process_text():
-    #Existing code
-    # ... (your existing /text route code remains unchanged) ...
+    #Existing /text route
+    # ... (your existing /text route code remains unchanged)
     data = request.get_json()
     text = data.get('text')
 
@@ -153,32 +158,50 @@ def customer_support():
     if not GEMINI_API_KEY or not APOLLO247_AUTH_TOKEN:
         return jsonify({'error': 'API keys not configured'}), 500
 
-    # 1. Extract Order ID (using regex)
     order_id = None
-    match = re.search(r'\b(\d{7,})\b', user_query)  # Look for 7+ digit numbers
+    match = re.search(r'\b(\d{7,})\b', user_query)
     if match:
         order_id = match.group(1)
 
-    # 2. Call Apollo247 API if Order ID is found
-    apollo_response = None  # Initialize to None
-    order_summary = None # Initialize order_summary
+    apollo_response = None
+    order_summary = None  # Initialize order_summary
+
     if order_id:
         order_summary = get_order_summary(order_id, APOLLO247_AUTH_TOKEN)
         if order_summary:
-            # Extract relevant information (Adapt based on actual API response)
-            status = order_summary.get('status')
-            delivery_date = order_summary.get('deliveryDate')
+            # --- CORRECTED RESPONSE PROCESSING ---
+            if order_summary.get("code") == 200 and order_summary.get("message") == "Data found.":
+                # Extract order details
+                cancellation_reason = order_summary.get('cancellationReason', 'N/A')
+                items = []
+                for item in order_summary.get('orderItemDetails', []):
+                    items.append({
+                        'name': item.get('name', 'N/A'),
+                        'sku': item.get('sku', 'N/A'),
+                        'requestedQuantity': item.get('requestedQuantity', 'N/A'),
+                        'approvedQuantity': item.get('approvedQuantity', 'N/A')
+                    })
 
-            # Create a user-friendly response
-            if status and delivery_date:
-                apollo_response = f"Your order ({order_id}) is currently '{status}' and is expected to be delivered by {delivery_date}."
-            elif status:
-                apollo_response = f"Your order ({order_id}) is currently '{status}'."
+                apollo_response = (
+                    f"* **Order ID:** {order_id}\n"
+                    f"* **Cancellation Reason:** {cancellation_reason}\n"
+                    f"* **Items:**\n"
+                )
+                #This is done to handle if no items are present
+                if items:
+                    for item in items:
+                        apollo_response += (
+                            f"    * **Name:** {item['name']} (SKU: {item['sku']})\n"
+                            f"      * **Requested Quantity:** {item['requestedQuantity']}\n"
+                            f"      * **Approved Quantity:** {item['approvedQuantity']}\n"
+                        )
+                else:
+                    apollo_response += "    * No items found for this order.\n"
             else:
-                apollo_response = f"I found your order ({order_id}), but I'm having trouble retrieving all the details."
+                # Handle the case where data is NOT found (but the API call was successful)
+                apollo_response = f"I couldn't find details for order ID {order_id}.  Please double-check the ID."
+    # --- END OF CORRECTED RESPONSE PROCESSING ---
 
-
-    # 3. Prepare Gemini Prompt (***REVISED***)
     system_instruction = (
         "You are a friendly, empathetic, and efficient customer support agent for Apollo 24|7 (https://www.apollo247.com/). "
         "You are patient and understanding, especially with users who might be stressed or unwell. "
@@ -217,7 +240,8 @@ def customer_support():
         "\n*   Immediately follow the greeting with a statement about how you can help (e.g., 'How can I help you today?', 'How can I assist you?', 'What can I do for you?')."
 
         "\n\n**Order Related Queries:**"  # This section is crucial for instruction
-        "\n*   **Prioritize order information:** If order details are provided, display them *immediately* and *before any other text*."
+        "\n*   **Prioritize order information:** If order details are provided by the API , display them *immediately* and *before any other text*."
+        "\n* If order information is present, do not show any canned response or greetings, and directly jump to providing order information"
         "\n*   **Structured format:** Present the order information clearly and concisely. Use the following format:"
         "\n    *   **Order ID:** [Order ID]"
         "\n    *   **Status:** [Order Status]"
@@ -226,19 +250,13 @@ def customer_support():
         "\n*   **If no order information is available:** Respond appropriately based on the customer's query, acknowledging that you couldn't retrieve the order details."
     )
 
-
-    # 4. Call Gemini API (with the revised prompt)
+     # 4. Call Gemini API (with the revised prompt)
     if order_summary:
         # Construct a detailed prompt, extracting key data from order_summary
         gemini_prompt = (
             f"{system_instruction}\n\n"
             f"Customer query: {user_query}\n\n"
-            f"Here is the order information:\n"
-            f"* **Order ID:** {order_summary.get('orderId', 'N/A')}\n"
-            f"* **Status:** {order_summary.get('status', 'N/A')}\n"
-            f"* **Estimated Delivery:** {order_summary.get('deliveryDate', 'N/A')}\n"
-            # Add other relevant fields from the *actual* API response here
-            f"* **Items:** {', '.join([item.get('productName', 'N/A') for item in order_summary.get('items', [])]) if order_summary.get('items') else 'N/A'}\n" # Example: handling a list of items.
+            f"Here is the order information:\n{apollo_response}" # Directly using the formatted response
             f"Given the above order information, address the customer query. Display the order details first, and then provide any additional helpful information or context."
 
         )
@@ -277,6 +295,7 @@ def customer_support():
         return jsonify({'result': text_response})
     else:
         return jsonify({'error': 'Invalid response format from API'}), 500
+
 
 
 if __name__ == '__main__':
