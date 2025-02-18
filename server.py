@@ -23,20 +23,15 @@ APOLLO247_AUTH_TOKEN = os.getenv('APOLLO247_AUTH_TOKEN')
 
 def validate_auth_token():
     """
-    Validate the Apollo247 auth token at startup
+    Validate the Apollo247 auth token.
     """
     if not APOLLO247_AUTH_TOKEN:
         logger.warning("APOLLO247_AUTH_TOKEN is not set!")
         return False
-
-    # Remove any whitespace from token
     cleaned_token = APOLLO247_AUTH_TOKEN.strip()
-
-    # Basic token format validation
     if not cleaned_token or ' ' in cleaned_token:
         logger.warning("APOLLO247_AUTH_TOKEN contains invalid characters or spaces!")
         return False
-
     return True
 
 def get_order_summary(order_id, auth_token):
@@ -76,7 +71,7 @@ def home():
 
 @app.route('/calculate', methods=['POST'])
 def calculate():
-     # Existing /calculate route
+ # Existing /calculate route
     #... (your existing /calculate route code remains unchanged)
     data = request.get_json()
     expression = data.get('expression')
@@ -126,7 +121,7 @@ def calculate():
 
 @app.route('/text', methods=['POST'])
 def process_text():
-    #Existing /text route
+#Existing /text route
     # ... (your existing /text route code remains unchanged)
     data = request.get_json()
     text = data.get('text')
@@ -177,7 +172,6 @@ def process_text():
 
 @app.route('/support', methods=['POST'])
 def customer_support():
-    # Validate token at request time
     if not APOLLO247_AUTH_TOKEN or not APOLLO247_AUTH_TOKEN.strip():
         return jsonify({
             'error': 'Apollo247 authentication token is not properly configured'
@@ -197,125 +191,106 @@ def customer_support():
     if match:
         order_id = match.group(1)
 
-    apollo_response = None
-    order_summary = None
-
-    # --- Intent Detection (Basic) ---
+    # --- Check for Order Summary Intent ---
+    asks_for_summary = "summary" in user_query.lower()
     asks_for_cancellation_reason = "cancellation reason" in user_query.lower()
+
 
     if order_id:
         order_summary = get_order_summary(order_id, APOLLO247_AUTH_TOKEN)
         if order_summary:
-            if order_summary.get("code") == 200 and order_summary.get("message") == "Data found.":
+            # --- Direct JSON Response for Order Summary ---
+            if asks_for_summary and order_summary.get("code") == 200 and order_summary.get("message") == "Data found.":
+                return jsonify(order_summary)  # Directly return the Apollo API JSON
+            elif asks_for_cancellation_reason and order_summary.get("code") == 200 and order_summary.get("message") == "Data found.":
                 cancellation_reason = order_summary.get('cancellationReason', 'N/A')
-                items = order_summary.get('orderItemDetails', [])
-
-                # --- Conditional Response Generation ---
-                if asks_for_cancellation_reason:
-                    if cancellation_reason != 'N/A':
-                        apollo_response = f"**Cancellation Reason for Order {order_id}:** {cancellation_reason}"
-                    else:
-                        apollo_response = f"No cancellation reason was found for order {order_id}."
+                if cancellation_reason != 'N/A':
+                    return jsonify({'cancellationReason': cancellation_reason, 'orderId': order_id})
                 else:
-                    # Full order details (as before)
-                    apollo_response = f"**Order ID:** {order_id}\n\n"
-                    if cancellation_reason != 'N/A':
-                        apollo_response += f"**Cancellation Reason:** {cancellation_reason}\n\n"
-                    apollo_response += "**Items:**\n"
-                    if items:
-                        for item in items:
-                            apollo_response += (
-                                f"* **{item.get('name', 'N/A')}** (SKU: {item.get('sku', 'N/A')})\n"
-                                f"    * Requested Quantity: {item.get('requestedQuantity', 'N/A')}\n"
-                                f"    * Approved Quantity: {item.get('approvedQuantity', 'N/A')}\n"
-                            )
-                    else:
-                        apollo_response += "* No items found for this order.\n"
-            else:
-                apollo_response = f"I couldn't find details for order ID {order_id}. Please double-check the ID."
+                    return jsonify({'message': f"No cancellation reason found for order {order_id}."})
 
-    # --- Refined System Instruction ---
+            elif order_summary.get("code") == 200 and order_summary.get("message") == "Data found.":
+                # Extract order details
+                cancellation_reason = order_summary.get('cancellationReason', 'N/A')
+                items = []
+                for item in order_summary.get('orderItemDetails', []):
+                    items.append({
+                        'name': item.get('name', 'N/A'),
+                        'sku': item.get('sku', 'N/A'),
+                        'requestedQuantity': item.get('requestedQuantity', 'N/A'),
+                        'approvedQuantity': item.get('approvedQuantity', 'N/A')
+                    })
+
+                apollo_response = (
+                    f"* **Order ID:** {order_id}\n"
+                    f"* **Cancellation Reason:** {cancellation_reason}\n"
+                    f"* **Items:**\n"
+                )
+                if items:
+                    for item in items:
+                        apollo_response += (
+                            f"    * **Name:** {item['name']} (SKU: {item['sku']})\n"
+                            f"      * **Requested Quantity:** {item['requestedQuantity']}\n"
+                            f"      * **Approved Quantity:** {item['approvedQuantity']}\n"
+                        )
+                else:
+                    apollo_response += "    * No items found for this order.\n"
+
+            else:
+
+                return jsonify({'message': f"I couldn't find details for order ID {order_id}. Please double-check the ID."}) # Return as JSON
+
+        else: #Handles api errors
+            return jsonify({'error': f"Error retrieving order summary for {order_id}"}), 500
+
+
+    # --- Refined System Instruction (Keep for non-order queries) ---
     system_instruction = (
         "You are a customer support agent for Apollo 24|7. "
-        "Your goal is to provide ACCURATE and CONCISE information, directly relevant to the user's query. "
-        "Prioritize clarity and ease of understanding."
+        "Your goal is to provide ACCURATE and CONCISE information directly relevant to the user's query. "
         "\n\n**Instructions:**"
         "\n*   **Do not introduce yourself.**"
-        "\n*   **Order Queries:**"
-        "\n    *   If the user asks *specifically* about the 'cancellation reason', provide ONLY the cancellation reason and order ID.  Do not include any other details (items, etc.)."
-        "\n    *   If the user asks for a general order 'summary' or 'details', provide the full order information (as formatted below)."
-        "\n    *   If order details are provided, display them IMMEDIATELY using the following Markdown format:"
-        "\n        ```"  # Markdown code block
-        "\n        **Order ID:** [Order ID]"
-        "\n        **Cancellation Reason:** [Cancellation Reason (if applicable and if not already provided)]"
-        "\n        **Items:**"
-        "\n          * **[Item Name]** (SKU: [SKU])"
-        "\n              * Requested Quantity: [Requested Quantity]"
-        "\n              * Approved Quantity: [Approved Quantity]"
-        "\n        ```"
-        "\n    *   If NO order details are available, respond appropriately, acknowledging that you couldn't retrieve the order details."
-        "\n*   Be extremely concise. Avoid unnecessary phrases.  Get straight to the point."
-        "\n* Do not show order details, if it's not requested specifically."
-        "\n*  Do not include any additional information, other than requested."
+        "\n* If user asks other than order summary, for example, cancellation, respond appropriately."
+        "\n*   Be extremely concise. Avoid unnecessary phrases. Get straight to the point."
     )
 
-    # --- Gemini Prompt Construction ---
-    if order_summary:
-        if asks_for_cancellation_reason:
-            # Gemini prompt for *just* the cancellation reason
-            gemini_prompt = (
-                f"{system_instruction}\n\n"
-                f"Customer query: {user_query}\n\n"
-                f"Order Information:\n{apollo_response}"  #  <--  Use the specific apollo_response
-                f"\n\nRespond ONLY with the cancellation reason. Do not include any other information."
-            )
-        else:
-            # Gemini prompt for full order details
-            gemini_prompt = (
-                f"{system_instruction}\n\n"
-                f"Customer query: {user_query}\n\n"
-                f"Here is the order information:\n{apollo_response}"
-                f"Given the above order information, address the customer query. Display the order details first, "
-                f"and then provide any additional helpful information or context."
-            )
-    elif order_id:
-        gemini_prompt = (
-            f"{system_instruction}\n\n"
-            f"Customer query: {user_query}\n\n"
-            f"I was unable to retrieve details for order ID {order_id}. Please double-check the order ID."
-            f"How else may I assist you?"
-        )
-    else:
+    # --- Gemini Prompt (Only for non-order-summary queries) ---
+    if not asks_for_summary and not order_id:
         gemini_prompt = f"{system_instruction}\n\nCustomer query: {user_query}"
 
-    try:
-        response = requests.post(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
-            headers={
-                'Content-Type': 'application/json',
-                'x-goog-api-key': GEMINI_API_KEY
-            },
-            json={
-                'contents': [{
-                    'parts': [{
-                        'text': gemini_prompt
+        try:
+            response = requests.post(
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
+                headers={
+                    'Content-Type': 'application/json',
+                    'x-goog-api-key': GEMINI_API_KEY
+                },
+                json={
+                    'contents': [{
+                        'parts': [{
+                            'text': gemini_prompt
+                        }]
                     }]
-                }]
-            })
+                })
 
-        response.raise_for_status()
-        response_data = response.json()
+            response.raise_for_status()
+            response_data = response.json()
 
-        if 'candidates' in response_data and response_data['candidates']:
-            text_response = response_data['candidates'][0]['content']['parts'][0]['text']
-            return jsonify({'result': text_response})
-        else:
-            return jsonify({'error': 'Invalid response format from API'}), 500
+            if 'candidates' in response_data and response_data['candidates']:
+                text_response = response_data['candidates'][0]['content']['parts'][0]['text']
+                return jsonify({'result': text_response})
+            else:
+                return jsonify({'error': 'Invalid response format from API'}), 500
+        except requests.exceptions.RequestException as e:
+            return jsonify({'error': 'Failed to process support request'}), 500
+        except Exception as e:
+            return jsonify({'error': 'An unexpected error occurred'}), 500
 
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': 'Failed to process support request'}), 500
-    except Exception as e:
-        return jsonify({'error': 'An unexpected error occurred'}), 500
+    elif not asks_for_summary and order_id:
+        return jsonify({'message': f"I couldn't find details for order ID {order_id}. Please double-check the ID."})
+
+
+    return jsonify({'message': 'Invalid request'}), 400 # Catch-all for unexpected cases
 
 # Validate token at startup
 if not validate_auth_token():
