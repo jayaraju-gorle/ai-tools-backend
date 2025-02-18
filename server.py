@@ -141,6 +141,12 @@ def customer_support():
         if not GEMINI_API_KEY:
             return jsonify({'error': 'API key not configured'}), 500
 
+        system_instruction = (
+            "Assume you are customer support agent of apollo247(https://www.apollo247.com/), "
+            "conversing with customers who reached out to their support. "
+            "Respond appropriately to the customer's query."
+        )
+
         response = requests.post(
             'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
             headers={
@@ -150,10 +156,9 @@ def customer_support():
             json={
                 'contents': [{
                     'parts': [{
-                        'text': text
+                        'text': f"{system_instruction}\n\nCustomer query: {text}"
                     }]
-                }],
-                'system': 'Assume you are customer support agent of apollo247(https://www.apollo247.com/), conversing with customers who reached out to their support.'
+                }]
             })
 
         print(f"Response status code: {response.status_code}")
