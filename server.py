@@ -73,9 +73,10 @@ def get_order_summary(order_id, auth_token):
 @app.route('/', methods=['GET'])
 def home():
     return jsonify({'message': 'Welcome to this API Service!'})
+
 @app.route('/calculate', methods=['POST'])
 def calculate():
-   # Existing /calculate route
+     # Existing /calculate route
     #... (your existing /calculate route code remains unchanged)
     data = request.get_json()
     expression = data.get('expression')
@@ -174,7 +175,6 @@ def process_text():
         print(f'An unexpected error occurred: {e}')
         return jsonify({'error': 'An unexpected error occurred'}), 500
 
-
 @app.route('/support', methods=['POST'])
 def customer_support():
     # Validate token at request time
@@ -200,71 +200,85 @@ def customer_support():
     apollo_response = None
     order_summary = None
 
+    # --- Intent Detection (Basic) ---
+    asks_for_cancellation_reason = "cancellation reason" in user_query.lower()
+
     if order_id:
         order_summary = get_order_summary(order_id, APOLLO247_AUTH_TOKEN)
         if order_summary:
             if order_summary.get("code") == 200 and order_summary.get("message") == "Data found.":
-                # --- Improved Apollo Response Formatting (in Python) ---
                 cancellation_reason = order_summary.get('cancellationReason', 'N/A')
                 items = order_summary.get('orderItemDetails', [])
 
-                apollo_response = f"**Order ID:** {order_id}\n\n"  # Bold Order ID
-
-                if cancellation_reason != 'N/A':
-                    apollo_response += f"**Cancellation Reason:** {cancellation_reason}\n\n"
-
-                apollo_response += "**Items:**\n"
-                if items:
-                    for item in items:
-                        apollo_response += (
-                            f"* **{item.get('name', 'N/A')}** (SKU: {item.get('sku', 'N/A')})\n"
-                            f"    * Requested Quantity: {item.get('requestedQuantity', 'N/A')}\n"
-                            f"    * Approved Quantity: {item.get('approvedQuantity', 'N/A')}\n"
-                        )
+                # --- Conditional Response Generation ---
+                if asks_for_cancellation_reason:
+                    if cancellation_reason != 'N/A':
+                        apollo_response = f"**Cancellation Reason for Order {order_id}:** {cancellation_reason}"
+                    else:
+                        apollo_response = f"No cancellation reason was found for order {order_id}."
                 else:
-                    apollo_response += "* No items found for this order.\n"
-
+                    # Full order details (as before)
+                    apollo_response = f"**Order ID:** {order_id}\n\n"
+                    if cancellation_reason != 'N/A':
+                        apollo_response += f"**Cancellation Reason:** {cancellation_reason}\n\n"
+                    apollo_response += "**Items:**\n"
+                    if items:
+                        for item in items:
+                            apollo_response += (
+                                f"* **{item.get('name', 'N/A')}** (SKU: {item.get('sku', 'N/A')})\n"
+                                f"    * Requested Quantity: {item.get('requestedQuantity', 'N/A')}\n"
+                                f"    * Approved Quantity: {item.get('approvedQuantity', 'N/A')}\n"
+                            )
+                    else:
+                        apollo_response += "* No items found for this order.\n"
             else:
                 apollo_response = f"I couldn't find details for order ID {order_id}. Please double-check the ID."
-    # --- END of Improved Formatting ---
 
     # --- Refined System Instruction ---
     system_instruction = (
         "You are a customer support agent for Apollo 24|7. "
-        "Your goal is to provide ACCURATE and CONCISE information.  "
-        "Prioritize clarity and ease of understanding for the user."
+        "Your goal is to provide ACCURATE and CONCISE information, directly relevant to the user's query. "
+        "Prioritize clarity and ease of understanding."
         "\n\n**Instructions:**"
         "\n*   **Do not introduce yourself.**"
         "\n*   **Order Queries:**"
+        "\n    *   If the user asks *specifically* about the 'cancellation reason', provide ONLY the cancellation reason and order ID.  Do not include any other details (items, etc.)."
+        "\n    *   If the user asks for a general order 'summary' or 'details', provide the full order information (as formatted below)."
         "\n    *   If order details are provided, display them IMMEDIATELY using the following Markdown format:"
-        "\n        ```"  # Start of Markdown code block
+        "\n        ```"  # Markdown code block
         "\n        **Order ID:** [Order ID]"
-        "\n        **Cancellation Reason:** [Cancellation Reason (if applicable)]"
+        "\n        **Cancellation Reason:** [Cancellation Reason (if applicable and if not already provided)]"
         "\n        **Items:**"
         "\n          * **[Item Name]** (SKU: [SKU])"
         "\n              * Requested Quantity: [Requested Quantity]"
         "\n              * Approved Quantity: [Approved Quantity]"
-        "\n        ```"  # End of Markdown code block
-        "\n    *   If NO order details are available, respond appropriately to the customer's query, "
-        "acknowledging that you couldn't retrieve the order details."
-        "\n*   Be extremely concise. Avoid unnecessary phrases. Get straight to the point."
+        "\n        ```"
+        "\n    *   If NO order details are available, respond appropriately, acknowledging that you couldn't retrieve the order details."
+        "\n*   Be extremely concise. Avoid unnecessary phrases.  Get straight to the point."
+        "\n* Do not show order details, if it's not requested specifically."
         "\n*  Do not include any additional information, other than requested."
     )
 
-
-     # 4. Call Gemini API (with the revised prompt)
+    # --- Gemini Prompt Construction ---
     if order_summary:
-        # Construct a detailed prompt, extracting key data from order_summary
-        gemini_prompt = (
-            f"{system_instruction}\n\n"
-            f"Customer query: {user_query}\n\n"
-            f"Here is the order information:\n{apollo_response}"
-            f"Given the above order information, address the customer query. Display the order details first, "
-            f"and then provide any additional helpful information or context."
-
-        )
+        if asks_for_cancellation_reason:
+            # Gemini prompt for *just* the cancellation reason
+            gemini_prompt = (
+                f"{system_instruction}\n\n"
+                f"Customer query: {user_query}\n\n"
+                f"Order Information:\n{apollo_response}"  #  <--  Use the specific apollo_response
+                f"\n\nRespond ONLY with the cancellation reason. Do not include any other information."
+            )
+        else:
+            # Gemini prompt for full order details
+            gemini_prompt = (
+                f"{system_instruction}\n\n"
+                f"Customer query: {user_query}\n\n"
+                f"Here is the order information:\n{apollo_response}"
+                f"Given the above order information, address the customer query. Display the order details first, "
+                f"and then provide any additional helpful information or context."
+            )
     elif order_id:
-        # Case where we *tried* to get order info, but it failed (e.g., invalid ID)
         gemini_prompt = (
             f"{system_instruction}\n\n"
             f"Customer query: {user_query}\n\n"
@@ -272,9 +286,7 @@ def customer_support():
             f"How else may I assist you?"
         )
     else:
-        # Case where no order ID was provided in the user query
         gemini_prompt = f"{system_instruction}\n\nCustomer query: {user_query}"
-
 
     try:
         response = requests.post(
@@ -304,6 +316,7 @@ def customer_support():
         return jsonify({'error': 'Failed to process support request'}), 500
     except Exception as e:
         return jsonify({'error': 'An unexpected error occurred'}), 500
+
 # Validate token at startup
 if not validate_auth_token():
     logger.warning("Application started with invalid Apollo247 auth token!")
