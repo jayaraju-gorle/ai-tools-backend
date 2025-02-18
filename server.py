@@ -116,7 +116,6 @@ def calculate():
     except Exception as e:  # Catch other potential errors
         print(f'An unexpected error occurred: {e}')
         return jsonify({'error': 'An unexpected error occurred'}), 500
-
 @app.route('/text', methods=['POST'])
 def process_text():
     # Existing code
@@ -166,10 +165,8 @@ def process_text():
     except Exception as e: # catch any other exception
         print(f'An unexpected error occurred: {e}')
         return jsonify({'error': 'An unexpected error occurred'}), 500
-
 @app.route('/support', methods=['POST'])
 def customer_support():
-    # Validate token at request time
     if not APOLLO247_AUTH_TOKEN or not APOLLO247_AUTH_TOKEN.strip():
         return jsonify({
             'error': 'Apollo247 authentication token is not properly configured'
@@ -190,106 +187,76 @@ def customer_support():
         order_id = match.group(1)
 
     # --- Intent Detection ---
-    asks_for_summary = "summary" in user_query.lower()
     asks_for_cancellation_reason = "cancellation reason" in user_query.lower()
 
-    # --- API Call and Response Handling ---
     if order_id:
         order_summary = get_order_summary(order_id, APOLLO247_AUTH_TOKEN)
 
-        if order_summary:  # API call was successful
+        if order_summary:
             if order_summary.get("code") == 200 and order_summary.get("message") == "Data found.":
-                # Case 1:  User asks for "summary" -> Return raw JSON
-                if asks_for_summary:
-                    return jsonify(order_summary)
-
-                # Case 2: User asks for "cancellation reason" -> Return just that
-                cancellation_reason = order_summary.get('cancellationReason', 'N/A')
-
+                # Case 1: Cancellation Reason Query -> Use Gemini
                 if asks_for_cancellation_reason:
-                    return jsonify({'cancellationReason': cancellation_reason, 'orderId': order_id})
+                    cancellation_reason = order_summary.get('cancellationReason', 'N/A')
 
-                # Case 3: General query about the order (with valid data) -> Use Gemini
-                # Prepare apollo_response (formatted order data - STILL INTERNAL)
-                items = order_summary.get('orderItemDetails', [])
-                apollo_response = f"**Order ID:** {order_id}\n\n"
-                apollo_response += f"**Cancellation Reason:** {cancellation_reason if cancellation_reason is not None else 'None'}\n\n"
-                apollo_response += "**Items:**\n"
-                if items:
-                    for item in items:
-                        apollo_response += (
-                            f"* **{item.get('name', 'N/A')}** (SKU: {item.get('sku', 'N/A')})\n"
-                            f"    * Requested Quantity: {item.get('requestedQuantity', 'N/A')}\n"
-                            f"    * Approved Quantity: {item.get('approvedQuantity', 'N/A')}\n"
-                        )
-                else:
-                    apollo_response += "* No items found for this order.\n"
+                    # --- Gemini Prompt (for cancellation reason ONLY) ---
+                    system_instruction = (
+                        "You are a customer support agent for Apollo 24|7. "
+                        "Provide the CANCELLATION REASON for the given order ID, and NOTHING ELSE."
+                        "\n\n**Instructions:**"
+                        "\n*   **Do not introduce yourself.**"
+                        "\n*   **Respond with ONLY the cancellation reason. Do not include any other text.**"
+                        "\n*   If there is no cancellation reason, respond with 'None'."
+                    )
 
-                # --- Gemini Prompt (for final, user-friendly response) ---
-                final_response_instruction = (
-                    "You are a customer support agent for Apollo 24|7. "
-                    "Your task is to provide a clear, concise, and user-friendly summary of order information "
-                    "based on the customer's query and the provided order data."
-                    "\n\n**Instructions:**"
-                    "\n*   **Do not introduce yourself.**"
-                    "\n*   **Format the response for easy readability:**"
-                    "\n    *   Use Markdown for bold headings (e.g., **Order Status:**)."
-                    "\n    *   Use bullet points for lists (e.g., items in the order)."
-                    "\n    *   Use clear and concise language."
-                    "\n*   **Adapt your response to the query:**"
-                    "\n    *   If the user asks about cancellation, focus on that."
-                    "\n    *   If the user asks about the status, focus on that."
-                    "\n    *   Provide a general summary if the query is broad."
-                    "\n*   **Be extremely concise.  Avoid unnecessary phrases.**"
-                    "\n*  Do not include any additional information, other than requested."
-                    "\n* **Base your ENTIRE response on the provided 'Order Information'. Do not make up information.**"
-                )
+                    gemini_prompt = (
+                        f"{system_instruction}\n\n"
+                        f"Customer query: {user_query}\n\n"
+                        f"Cancellation Reason: {cancellation_reason}"
+                    )
 
-                gemini_prompt = (
-                    f"{final_response_instruction}\n\n"
-                    f"Customer query: {user_query}\n\n"
-                    f"Order Information:\n{apollo_response}"  # Pass the structured data
-                )
-
-
-                try:
-                    response = requests.post(
-                        'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
-                        headers={
-                            'Content-Type': 'application/json',
-                            'x-goog-api-key': GEMINI_API_KEY
-                        },
-                        json={
-                            'contents': [{
-                                'parts': [{
-                                    'text': gemini_prompt
+                    try:
+                        response = requests.post(
+                            'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
+                            headers={
+                                'Content-Type': 'application/json',
+                                'x-goog-api-key': GEMINI_API_KEY
+                            },
+                            json={
+                                'contents': [{
+                                    'parts': [{
+                                        'text': gemini_prompt
+                                    }]
                                 }]
-                            }]
-                        })
+                            })
 
-                    response.raise_for_status()
-                    response_data = response.json()
+                        response.raise_for_status()
+                        response_data = response.json()
 
-                    if 'candidates' in response_data and response_data['candidates']:
-                        text_response = response_data['candidates'][0]['content']['parts'][0]['text']
-                        return jsonify({'result': text_response})  # Return Gemini's formatted response
-                    else:
-                        return jsonify({'error': 'Invalid response format from API'}), 500
+                        if 'candidates' in response_data and response_data['candidates']:
+                            text_response = response_data['candidates'][0]['content']['parts'][0]['text']
+                            return jsonify({'result': text_response})
+                        else:
+                            return jsonify({'error': 'Invalid response format from Gemini'}), 500
 
-                except requests.exceptions.RequestException as e:
-                    return jsonify({'error': 'Failed to process support request'}), 500
-                except Exception as e:
-                    return jsonify({'error': 'An unexpected error occurred'}), 500
+                    except requests.exceptions.RequestException as e:
+                        return jsonify({'error': 'Failed to process support request'}), 500
+                    except Exception as e:
+                        return jsonify({'error': 'An unexpected error occurred'}), 500
+
+
+                # Case 2: All Other Order Queries -> Return RAW JSON
+                else:
+                    return jsonify(order_summary)
 
             else:  # order_summary exists, but code != 200 or message != "Data found."
                 return jsonify({'message': f"I couldn't find details for order ID {order_id}. Please double-check the ID."}), 200
 
-
-        else:  # API call failed (order_summary is None)
+        else: #order_summary is None
             return jsonify({'message': f"I couldn't find details for order ID {order_id}. Please double-check the ID."}), 200
 
-    else:  # No order ID provided
-        # --- Gemini Prompt (for general, non-order queries) ---
+
+    # Case 3: No Order ID -> Use Gemini for General Queries
+    else:
         system_instruction = (
             "You are a customer support agent for Apollo 24|7. "
             "Provide ACCURATE and CONCISE information directly relevant to the user's query."
@@ -329,7 +296,7 @@ def customer_support():
             return jsonify({'error': 'An unexpected error occurred'}), 500
 
     return jsonify({'message': 'Invalid request'}), 400  # Catch-all
-        
+
 # Validate token at startup
 if not validate_auth_token():
     logger.warning("Application started with invalid Apollo247 auth token!")
