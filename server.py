@@ -161,6 +161,7 @@ def customer_support():
 
     # 2. Call Apollo247 API if Order ID is found
     apollo_response = None  # Initialize to None
+    order_summary = None # Initialize order_summary
     if order_id:
         order_summary = get_order_summary(order_id, APOLLO247_AUTH_TOKEN)
         if order_summary:
@@ -176,7 +177,8 @@ def customer_support():
             else:
                 apollo_response = f"I found your order ({order_id}), but I'm having trouble retrieving all the details."
 
-    # 3. Prepare Gemini Prompt
+
+    # 3. Prepare Gemini Prompt (***REVISED***)
     system_instruction = (
         "You are a friendly, empathetic, and efficient customer support agent for Apollo 24|7 (https://www.apollo247.com/). "
         "You are patient and understanding, especially with users who might be stressed or unwell. "
@@ -214,17 +216,44 @@ def customer_support():
         "\n*   Start your responses with a greeting appropriate to the context (e.g., 'Hi there!', 'Hello!', 'Good morning/afternoon/evening')."
         "\n*   Immediately follow the greeting with a statement about how you can help (e.g., 'How can I help you today?', 'How can I assist you?', 'What can I do for you?')."
 
-        "\n\n**Order Related Queries:**"
-        "\n* If order information is available from the Apollo 24|7 API, prioritize using that information in your response."
-        "\n* If the API call fails or no order ID is found, use the Gemini AI model to address the customer's query."
-
+        "\n\n**Order Related Queries:**"  # This section is crucial for instruction
+        "\n*   **Prioritize order information:** If order details are provided, display them *immediately* and *before any other text*."
+        "\n*   **Structured format:** Present the order information clearly and concisely. Use the following format:"
+        "\n    *   **Order ID:** [Order ID]"
+        "\n    *   **Status:** [Order Status]"
+        "\n    *   **Estimated Delivery:** [Delivery Date/Time]"
+        "\n    *   **Other relevant details:** [List any other important details from the API response]"
+        "\n*   **If no order information is available:** Respond appropriately based on the customer's query, acknowledging that you couldn't retrieve the order details."
     )
 
-    # 4. Call Gemini API
-    if apollo_response:
-      gemini_prompt = f"{system_instruction}\n\nCustomer query: {user_query}\n\nOrder Information: {apollo_response}"
+
+    # 4. Call Gemini API (with the revised prompt)
+    if order_summary:
+        # Construct a detailed prompt, extracting key data from order_summary
+        gemini_prompt = (
+            f"{system_instruction}\n\n"
+            f"Customer query: {user_query}\n\n"
+            f"Here is the order information:\n"
+            f"* **Order ID:** {order_summary.get('orderId', 'N/A')}\n"
+            f"* **Status:** {order_summary.get('status', 'N/A')}\n"
+            f"* **Estimated Delivery:** {order_summary.get('deliveryDate', 'N/A')}\n"
+            # Add other relevant fields from the *actual* API response here
+            f"* **Items:** {', '.join([item.get('productName', 'N/A') for item in order_summary.get('items', [])]) if order_summary.get('items') else 'N/A'}\n" # Example: handling a list of items.
+            f"Given the above order information, address the customer query. Display the order details first, and then provide any additional helpful information or context."
+
+        )
+    elif order_id:
+        # Case where we *tried* to get order info, but it failed (e.g., invalid ID)
+        gemini_prompt = (
+            f"{system_instruction}\n\n"
+            f"Customer query: {user_query}\n\n"
+            f"I was unable to retrieve details for order ID {order_id}. Please double-check the order ID."
+            f"How else may I assist you?"
+        )
     else:
-      gemini_prompt = f"{system_instruction}\n\nCustomer query: {user_query}"
+        # Case where no order ID was provided in the user query
+        gemini_prompt = f"{system_instruction}\n\nCustomer query: {user_query}"
+
 
     response = requests.post(
         'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
