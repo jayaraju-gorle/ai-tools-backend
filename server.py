@@ -199,6 +199,7 @@ def customer_support():
     # --- API Call and Response Handling ---
     if order_id:
         order_summary = get_order_summary(order_id, APOLLO247_AUTH_TOKEN)
+        print(f"DEBUG: order_summary = {order_summary}")  # VERY IMPORTANT DEBUG PRINT
 
         if order_summary:  # API call was successful
             if order_summary.get("code") == 200 and order_summary.get("message") == "Data found.":
@@ -208,6 +209,8 @@ def customer_support():
 
                 # Case 2: User asks for "cancellation reason" -> Return just that
                 cancellation_reason = order_summary.get('cancellationReason', 'N/A')
+                print(f"DEBUG: cancellation_reason (extracted) = {cancellation_reason}") # DEBUG PRINT
+
                 if asks_for_cancellation_reason:
                     return jsonify({'cancellationReason': cancellation_reason, 'orderId': order_id})
 
@@ -228,6 +231,8 @@ def customer_support():
                 else:
                     apollo_response += "* No items found for this order.\n"
 
+                print(f"DEBUG: apollo_response = {apollo_response}")  # VERY IMPORTANT DEBUG PRINT
+
                 # --- Gemini Prompt (for general order queries) ---
                 system_instruction = (
                     "You are a customer support agent for Apollo 24|7. "
@@ -244,6 +249,8 @@ def customer_support():
                     f"Customer query: {user_query}\n\n"
                     f"Order Information:\n{apollo_response}"  # Pass the formatted data
                 )
+
+                print(f"DEBUG: gemini_prompt = {gemini_prompt}")  # VERY IMPORTANT - Check the full prompt
 
                 try:
                     response = requests.post(
@@ -323,7 +330,7 @@ def customer_support():
 
 
     return jsonify({'message': 'Invalid request'}), 400  # Catch-all
-
+    
 # Validate token at startup
 if not validate_auth_token():
     logger.warning("Application started with invalid Apollo247 auth token!")
