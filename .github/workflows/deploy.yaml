@@ -1,0 +1,40 @@
+name: Deploy to App Engine
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:  #  <--  IMPORTANT: Add these permissions
+      contents: read
+      id-token: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # Authenticate with Google Cloud (using Workload Identity Federation)
+    - name: Auth with Google Cloud
+      id: auth
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: 'projects/772545827002/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider' # Replace!
+        service_account: 'github-actions-deployer@gen-lang-client-0981591737.iam.gserviceaccount.com' # Replace!
+
+    # Set up gcloud
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+         project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+    # Install dependencies
+    - name: Install Dependencies
+      run: pip install -r requirements.txt --user
+
+    # Deploy to App Engine
+    - name: Deploy to App Engine
+      run: gcloud app deploy --quiet
