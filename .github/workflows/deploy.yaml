@@ -1,3 +1,4 @@
+# .github/workflows/deploy.yaml
 name: Deploy to GCP
 
 on:
@@ -8,28 +9,21 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v2
 
-      - name: Authenticate with GCP
-        id: auth
-        uses: google-github-actions/auth@v2
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v0.2.0
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ secrets.GCP_PROJECT }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
 
-      - name: Verify Authentication
-        run: gcloud auth list
-
-      - name: Deploy to GCP (Modify as needed)
+      - name: Deploy to Cloud Run
         run: |
           gcloud run deploy my-service \
-            --project=${{ secrets.GCP_PROJECT_ID }} \
-            --region=asia-south1 \
-            --platform=managed \
-            --image=gcr.io/${{ secrets.GCP_PROJECT_ID }}/my-image:latest
+            --image gcr.io/${{ secrets.GCP_PROJECT }}/my-image:latest \
+            --platform managed \
+            --region asia-south1 \
+            --timeout 300s # Increase timeout to 300 seconds
