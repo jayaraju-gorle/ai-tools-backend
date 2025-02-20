@@ -22,11 +22,11 @@ jobs:
 
       - name: Deploy to Cloud Run
         run: |
-            gcloud run deploy my-service \
-              --image gcr.io/my-project/my-image:latest \
-              --platform managed \
-              --region asia-south1 \
-              --timeout 300s \
-              --project gen-lang-client-0981591737
-          env:
-            CLOUDSDK_METRICS_ENVIRONMENT: github-actions-setup-gcloud
+          gcloud run deploy my-service \
+            --image gcr.io/my-project/my-image:latest \
+            --platform managed \
+            --region asia-south1 \
+            --timeout 300s \
+            --project gen-lang-client-0981591737
+        env:
+          CLOUDSDK_METRICS_ENVIRONMENT: github-actions-setup-gcloud
