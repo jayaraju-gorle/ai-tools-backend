@@ -30,6 +30,6 @@ jobs:
         run: |
           gcloud run deploy my-service \
             --project=${{ secrets.GCP_PROJECT_ID }} \
-            --region=us-central1 \
+            --region=asia-south1 \
             --platform=managed \
             --image=gcr.io/${{ secrets.GCP_PROJECT_ID }}/my-image:latest
