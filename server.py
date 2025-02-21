@@ -67,7 +67,7 @@ def get_order_summary(order_id, auth_token):
 
 @app.route('/', methods=['GET'])
 def home():
-    return jsonify({'message': 'This API Service is up and running!'})
+    return jsonify({'message': 'This API Service is up and running :)'})
 
 @app.route('/calculate', methods=['POST'])
 def calculate():
