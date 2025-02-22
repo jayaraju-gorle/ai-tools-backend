@@ -22,6 +22,26 @@ GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 ONEAPOLLO_API_KEY = os.getenv('ONEAPOLLO_API_KEY')
 ONEAPOLLO_ACCESS_TOKEN = os.getenv('ONEAPOLLO_ACCESS_TOKEN')
 
+def extract_mobile_number(text):
+    """
+    Extract mobile number from text using regex.
+    Supports common Indian mobile number formats.
+    """
+    # Look for 10-digit numbers, optionally prefixed with +91 or 0
+    patterns = [
+        r'\b(?:\+91)?[6789]\d{9}\b',  # +91 followed by 10 digits
+        r'\b0?[6789]\d{9}\b',         # 0 followed by 10 digits
+        r'\b[6789]\d{9}\b'            # Plain 10 digits
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            # Remove any prefix and return just the 10 digits
+            number = match.group(0)
+            return re.sub(r'^(?:\+91|0)', '', number)
+    return None
+
 def validate_oneapollo_tokens():
     """
     Validate the OneApollo API key and access token.
@@ -72,6 +92,23 @@ def get_all_transactions(mobile_number, count=10):
     except Exception as e:
         logger.error(f"Error fetching transactions: {e}")
         return None
+
+def get_query_type(text):
+    """
+    Categorize the type of query to provide appropriate response.
+    """
+    text = text.lower()
+    
+    if any(word in text for word in ['credit', 'points', 'balance', 'health credit']):
+        return 'CREDITS_BALANCE'
+    elif any(word in text for word in ['transaction', 'purchase', 'history', 'bought']):
+        return 'TRANSACTION_HISTORY'
+    elif any(word in text for word in ['tier', 'status', 'level']):
+        return 'TIER_STATUS'
+    elif any(word in text for word in ['profile', 'details', 'information']):
+        return 'PROFILE_INFO'
+    else:
+        return 'GENERAL'
 
 @app.route('/', methods=['GET'])
 def home():
@@ -184,10 +221,19 @@ def customer_support():
 
     data = request.get_json()
     user_query = data.get('text')
-    mobile_number = data.get('mobile_number')  # New parameter for mobile number
 
-    if not user_query or not mobile_number:
-        return jsonify({'error': 'Query text and mobile number are required'}), 400
+    if not user_query:
+        return jsonify({
+            'error': 'Please provide a query. Example: "What is my health credits balance for mobile number 1234567890?"'
+        }), 400
+
+    # Extract mobile number from query
+    mobile_number = extract_mobile_number(user_query)
+    
+    if not mobile_number:
+        return jsonify({
+            'error': 'Please include a valid 10-digit mobile number in your query. Example: "What is my health credits balance for 1234567890?"'
+        }), 400
 
     if not GEMINI_API_KEY:
         return jsonify({'error': 'Gemini API key not configured'}), 500
@@ -199,25 +245,34 @@ def customer_support():
     if not customer_data or not transaction_data:
         return jsonify({'error': 'Failed to fetch customer data'}), 500
 
-    # Prepare context for Gemini
+    # Determine query type
+    query_type = get_query_type(user_query)
+
+    # Prepare context based on query type
     context = {
+        'query_type': query_type,
         'customer': customer_data.get('CustomerData', {}),
         'transactions': transaction_data.get('TransactionData', [])
     }
 
-    # Prepare prompt for Gemini
+    # Prepare prompt for Gemini based on query type
     system_instruction = (
         "You are a customer support agent for Apollo 24|7. "
-        "Provide information about health credits and transactions based on the provided data. "
+        "Provide specific information based on the query type and available data. "
         "\n\n**Instructions:**"
-        "\n* Do not introduce yourself."
         "\n* Be concise and direct."
-        "\n* Focus on health credits, rewards, and transaction history."
-        "\n* Use numerical data from the context provided."
+        "\n* For CREDITS_BALANCE: Focus on available, earned, and expired credits."
+        "\n* For TRANSACTION_HISTORY: Focus on recent transactions and credits earned/used."
+        "\n* For TIER_STATUS: Focus on current tier and benefits."
+        "\n* For PROFILE_INFO: Provide relevant customer details."
+        "\n* For GENERAL: Provide a helpful overview of available services."
+        "\n* Always include numerical data when available."
+        "\n* Format currency values with ₹ symbol."
     )
 
     gemini_prompt = (
         f"{system_instruction}\n\n"
+        f"Query Type: {query_type}\n"
         f"Customer Query: {user_query}\n\n"
         f"Customer Context: {context}"
     )
