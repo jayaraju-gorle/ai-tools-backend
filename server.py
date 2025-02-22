@@ -43,7 +43,7 @@ def get_customer_by_mobile(mobile_number):
         logger.debug(f"Request headers: {headers}")
         logger.debug(f"Request params: {params}")
         
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, headers=headers, params=params, verify=False)
         
         # Log response details for debugging
         logger.debug(f"Response status code: {response.status_code}")
@@ -80,7 +80,7 @@ def get_all_transactions(mobile_number, count=10):
         logger.debug(f"Request headers: {headers}")
         logger.debug(f"Request params: {params}")
         
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, headers=headers, params=params, verify=False)
         
         # Log response details for debugging
         logger.debug(f"Response status code: {response.status_code}")
