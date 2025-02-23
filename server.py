@@ -256,20 +256,56 @@ def customer_support():
         if not transaction_data.get('Success'):
             return jsonify({'error': 'No transaction data found for the provided mobile number'}), 404
 
-        # Prepare response data
+        # Get customer info
         customer_info = customer_data.get('CustomerData', {})
-        response_data = {
-            'name': customer_info.get('Name'),
-            'tier': customer_info.get('Tier'),
-            'availableCredits': customer_info.get('AvailableCredits'),
-            'earnedCredits': customer_info.get('EarnedCredits'),
-            'expiredCredits': customer_info.get('ExpiredCredits'),
-            'recentTransactions': transaction_data.get('TransactionData', [])[:3]  # Last 3 transactions
-        }
+        name = customer_info.get('Name', '')
+        available_credits = customer_info.get('AvailableCredits', 0)
+        earned_credits = customer_info.get('EarnedCredits', 0)
+        expired_credits = customer_info.get('ExpiredCredits', 0)
+        tier = customer_info.get('Tier', '')
+        
+        # Get recent transactions
+        recent_transactions = transaction_data.get('TransactionData', [])[:3]
+
+        # Generate natural language response based on query type
+        query_lower = user_query.lower()
+        
+        if 'balance' in query_lower or 'credits' in query_lower:
+            response = (
+                f"Hello {name}! You currently have {available_credits} health credits available to use. "
+                f"Throughout your membership, you've earned {earned_credits} credits in total"
+            )
+            if expired_credits > 0:
+                response += f", and {expired_credits} credits have expired"
+            response += "."
+            
+            if recent_transactions:
+                response += "\n\nYour most recent transaction was at "
+                response += f"{recent_transactions[0].get('BusinessUnit', 'our store')}"
+                if recent_transactions[0].get('AvailableHC'):
+                    response += f" where you had {recent_transactions[0]['AvailableHC']} credits available"
+            
+        elif 'transaction' in query_lower or 'history' in query_lower:
+            response = f"Hello {name}! Here are your recent transactions:\n\n"
+            for idx, trans in enumerate(recent_transactions, 1):
+                business_unit = trans.get('BusinessUnit', 'Store')
+                available_hc = trans.get('AvailableHC', 0)
+                response += f"{idx}. {business_unit}: {available_hc} credits available\n"
+                
+        elif 'tier' in query_lower or 'status' in query_lower:
+            response = f"Hello {name}! You are currently a {tier} member with {available_credits} health credits available."
+            
+        else:
+            response = (
+                f"Hello {name}! Here's a summary of your account:\n"
+                f"- Available Credits: {available_credits}\n"
+                f"- Total Earned Credits: {earned_credits}\n"
+                f"- Membership Tier: {tier}"
+            )
 
         return jsonify({
             'success': True,
-            'data': response_data
+            'response': response
         }), 200
 
     except Exception as e:
