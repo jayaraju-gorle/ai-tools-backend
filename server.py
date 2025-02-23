@@ -224,37 +224,83 @@ def customer_support():
         if not data:
             return jsonify({'error': 'No JSON data provided'}), 400
 
-        user_query = data.get('text')
+        user_query = data.get('text', '').strip().lower()
         if not user_query:
             return jsonify({
                 'error': 'Please provide a query. Example: "What is my health credits balance for 9876543210?"'
             }), 400
+
+        # Handle generic greetings and questions
+        greeting_patterns = {
+            'hi': True, 'hello': True, 'hey': True, 'hii': True,
+            'who are you': True, 'what are you': True,
+            'help': True, 'support': True
+        }
+        
+        # Check if query is a greeting or general question
+        is_generic = any(pattern in user_query for pattern in greeting_patterns)
+        
+        if is_generic:
+            return jsonify({
+                'success': True,
+                'response': (
+                    "Hello! I'm your Apollo 247 Support Assistant. I can help you with:\n\n"
+                    "1. Checking your health credits balance\n"
+                    "2. Viewing recent transactions\n"
+                    "3. Checking your membership status\n\n"
+                    "To get started, please include your 10-digit mobile number in your query. "
+                    "For example, you can ask:\n"
+                    "- 'What is my health credits balance for 9876543210?'\n"
+                    "- 'Show me recent transactions for 9876543210'\n"
+                    "- 'What is my membership status for 9876543210?'"
+                )
+            }), 200
 
         # Extract mobile number from query
         mobile_number = extract_mobile_number(user_query)
         
         if not mobile_number:
             return jsonify({
-                'error': 'Please include a valid 10-digit mobile number in your query. Example: "What is my health credits balance for 9876543210?"'
-            }), 400
+                'success': True,
+                'response': (
+                    "I notice you haven't provided a mobile number. To assist you better, "
+                    "please include your 10-digit mobile number in your query.\n\n"
+                    "For example:\n"
+                    "- 'What is my health credits balance for 9876543210?'\n"
+                    "- 'Show my recent transactions for 9876543210'"
+                )
+            }), 200
 
+        # Rest of the existing code for handling specific queries
         logger.info(f"Processing query for mobile number: {mobile_number}")
 
         # Fetch customer data
         customer_data = get_customer_by_mobile(mobile_number)
         if not customer_data:
-            return jsonify({'error': 'Unable to fetch customer data. Please verify the mobile number.'}), 500
+            return jsonify({
+                'success': False,
+                'response': 'I apologize, but I was unable to fetch your data. Please verify your mobile number and try again.'
+            }), 500
 
         if not customer_data.get('Success'):
-            return jsonify({'error': 'Customer not found with the provided mobile number'}), 404
+            return jsonify({
+                'success': False,
+                'response': "I couldn't find any customer records for this mobile number. Please make sure you've entered the correct number."
+            }), 404
 
         # Fetch transaction data
         transaction_data = get_all_transactions(mobile_number)
         if not transaction_data:
-            return jsonify({'error': 'Unable to fetch transaction data'}), 500
+            return jsonify({
+                'success': False,
+                'response': 'I apologize, but I was unable to fetch your transaction data at the moment. Please try again later.'
+            }), 500
 
         if not transaction_data.get('Success'):
-            return jsonify({'error': 'No transaction data found for the provided mobile number'}), 404
+            return jsonify({
+                'success': False,
+                'response': 'I could not find any transaction history for your account.'
+            }), 404
 
         # Get customer info
         customer_info = customer_data.get('CustomerData', {})
@@ -267,12 +313,12 @@ def customer_support():
         # Get recent transactions
         recent_transactions = transaction_data.get('TransactionData', [])[:3]
 
-        # Generate natural language response based on query type
+        # Generate response based on query type
         query_lower = user_query.lower()
         
         if 'balance' in query_lower or 'credits' in query_lower:
             response = (
-                f"Hello {name}! You currently have {available_credits} health credits available to use. "
+                f"Hello {name}! I can see that you currently have {available_credits} health credits available to use. "
                 f"Throughout your membership, you've earned {earned_credits} credits in total"
             )
             if expired_credits > 0:
@@ -280,8 +326,7 @@ def customer_support():
             response += "."
             
             if recent_transactions:
-                response += "\n\nYour most recent transaction was at "
-                response += f"{recent_transactions[0].get('BusinessUnit', 'our store')}"
+                response += f"\n\nYour most recent transaction was at {recent_transactions[0].get('BusinessUnit', 'our store')}"
                 if recent_transactions[0].get('AvailableHC'):
                     response += f" where you had {recent_transactions[0]['AvailableHC']} credits available"
             
@@ -310,7 +355,10 @@ def customer_support():
 
     except Exception as e:
         logger.error(f"Unexpected error in customer_support: {str(e)}")
-        return jsonify({'error': 'An unexpected error occurred'}), 500
+        return jsonify({
+            'success': False,
+            'response': 'I apologize, but I encountered an unexpected error. Please try again later or contact our support team if the issue persists.'
+        }), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
