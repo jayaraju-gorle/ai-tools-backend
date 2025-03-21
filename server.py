@@ -131,7 +131,7 @@ def calculate():
             return jsonify({'error': 'API key not configured'}), 500
 
         response = requests.post(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
             headers={
                 'Content-Type': 'application/json',
                 'x-goog-api-key': GEMINI_API_KEY
@@ -181,7 +181,7 @@ def process_text():
             return jsonify({'error': 'API key not configured'}), 500
 
         response = requests.post(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
             headers={
                 'Content-Type': 'application/json',
                 'x-goog-api-key': GEMINI_API_KEY
